@@ -16,7 +16,6 @@ MODELS = {
 }
 
 # 估算价格表 (单位：元/百万 Tokens)
-# 注意：实际价格以 SiliconFlow 官方实时计费为准，此处为参考值
 MODEL_PRICING = {
     "deepseek-ai/DeepSeek-R1": {"input": 4.0, "output": 16.0}, 
     "moonshotai/Kimi-K2-Thinking": {"input": 4.0, "output": 16.0} 
@@ -112,6 +111,7 @@ def get_ganzhi_time(dt=None):
     if dt is None:
         dt = datetime.datetime.now(TZ_CN)
     elif dt.tzinfo is None:
+        # 如果传入的时间没有时区信息，默认它是 UTC+8
         dt = dt.replace(tzinfo=TZ_CN)
     
     # 简单的年柱
@@ -452,9 +452,11 @@ def main():
         
         c1, c2 = st.columns(2)
         with c1:
-            qm_time = st.date_input("排盘日期", datetime.date.today())
+            # 关键修复：确保默认值使用 UTC+8 时间
+            qm_time = st.date_input("排盘日期", datetime.datetime.now(TZ_CN).date())
         with c2:
-            qm_hour = st.time_input("排盘时间", datetime.datetime.now().time())
+            # 关键修复：确保默认值使用 UTC+8 时间
+            qm_hour = st.time_input("排盘时间", datetime.datetime.now(TZ_CN).time())
             
         qm_question = st.text_input("🔮 奇门问测", key="qm_q")
         if not qm_question:
@@ -473,13 +475,14 @@ def main():
                 st.warning("请输入问题")
             else:
                 full_dt = datetime.datetime.combine(qm_time, qm_hour)
+                # 传入 full_dt 时，get_ganzhi_time 会加上 UTC+8 偏移
                 greg, ganzhi, _ = get_ganzhi_time(full_dt)
                 
                 st.success(f"排盘时间：{greg} | 干支：{ganzhi}")
                 
                 prompt = f"""
                 你是一位奇门遁甲大师。
-                **信息**：时间 {full_dt}，干支 {ganzhi}。
+                **信息**：时间 {full_dt} (UTC+8)，干支 {ganzhi}。
                 **问题**：{qm_question}。
                 **任务**：
                 1. 脑中排定该时辰的时家奇门盘（定局数、值符、值使）。
@@ -518,7 +521,7 @@ def main():
                 
                 prompt = f"""
                 你是一位精通大六壬金口诀的大师。
-                **信息**：起课时间 {full_dt}，干支 {ganzhi}。
+                **信息**：起课时间 {full_dt} (UTC+8)，干支 {ganzhi}。
                 **问题**：{lr_q}。
                 **任务**：
                 1. 确定月将（基于节气）。

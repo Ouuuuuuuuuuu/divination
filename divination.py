@@ -4,10 +4,14 @@ import random
 import time
 from openai import OpenAI
 
+# 引入专业的农历库
+# 必须先执行: pip install lunar_python
+from lunar_python import Lunar, Solar
+
 # ==========================================
 # 配置与常量
 # ==========================================
-SILICONFLOW_API_KEY = "sk-lezqyzzxlcnarawzhmyddltuclijckeufnzzktmkizfslcje"
+SILICONFLOW_API_KEY = "sk-lezqyzzxlcnarawzhmyddltuclijckeufnzzktmkizfslcje"  # 请确保Key安全
 BASE_URL = "https://api.siliconflow.cn/v1"
 
 MODELS = {
@@ -17,8 +21,8 @@ MODELS = {
 
 # 估算价格表 (单位：元/百万 Tokens)
 MODEL_PRICING = {
-    "deepseek-ai/DeepSeek-R1": {"input": 4.0, "output": 16.0}, 
-    "moonshotai/Kimi-K2-Thinking": {"input": 4.0, "output": 16.0} 
+    "deepseek-ai/DeepSeek-R1": {"input": 4.0, "output": 16.0},
+    "moonshotai/Kimi-K2-Thinking": {"input": 4.0, "output": 16.0}
 }
 
 # 设置 UTC+8 时区
@@ -97,55 +101,60 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ==========================================
-# 工具函数：干支历法（简化版）
+# 工具函数：干支与农历核心逻辑 (已修正)
 # ==========================================
-TIANGAN = ["甲", "乙", "丙", "丁", "戊", "己", "庚", "辛", "壬", "癸"]
-DIZHI = ["子", "丑", "寅", "卯", "辰", "巳", "午", "未", "申", "酉", "戌", "亥"]
-CN_NUM = ["", "正月", "二月", "三月", "四月", "五月", "六月", "七月", "八月", "九月", "十月", "十一月", "十二月"]
 
 def get_ganzhi_time(dt=None):
     """
-    计算干支及格式化时间
-    返回: (公历时间str, 干支时间str, 时辰idx)
+    计算干支及农历信息 (使用 lunar_python 库)
+    返回: 
+    - gregorian_str: 公历字符串
+    - ganzhi_str: 干支字符串 (含农历月日)
+    - hour_idx: 时辰索引 (0-11)
+    - lunar_month: 农历月份 (数字)
+    - lunar_day: 农历日期 (数字)
     """
     if dt is None:
         dt = datetime.datetime.now(TZ_CN)
     elif dt.tzinfo is None:
-        # 如果传入的时间没有时区信息，默认它是 UTC+8
         dt = dt.replace(tzinfo=TZ_CN)
+
+    # 1. 转换为 Solar 对象 (lunar_python 需要)
+    solar = Solar.fromYmdHms(dt.year, dt.month, dt.day, dt.hour, dt.minute, dt.second)
     
-    # 简单的年柱
-    year = dt.year
-    y_idx = (year - 4) % 60
-    y_gan = TIANGAN[y_idx % 10]
-    y_zhi = DIZHI[y_idx % 12]
+    # 2. 转为 Lunar 对象
+    lunar = solar.getLunar()
     
-    # 简单的日柱 (使用参考点计算)
-    base_date = datetime.date(1900, 1, 31) # 庚子日
-    days = (dt.date() - base_date).days
-    d_idx = (days + 36) % 60
-    d_gan = TIANGAN[d_idx % 10]
-    d_zhi = DIZHI[d_idx % 12]
+    # 3. 获取干支 (库自动处理了节气交换，比如立春换年柱，节气换月柱)
+    y_ganzhi = lunar.getYearInGanZhi()
+    m_ganzhi = lunar.getMonthInGanZhi()
+    d_ganzhi = lunar.getDayInGanZhi()
+    h_ganzhi = lunar.getTimeInGanZhi()
     
-    # 时柱 (日上起时)
-    hour_zhi_idx = (dt.hour + 1) // 2 % 12
-    start_h_gan_idx = (TIANGAN.index(d_gan) % 5) * 2
-    h_gan = TIANGAN[(start_h_gan_idx + hour_zhi_idx) % 10]
-    h_zhi = DIZHI[hour_zhi_idx]
+    # 4. 获取农历中文描述
+    lunar_month_cn = lunar.getMonthInChinese() + "月"
+    lunar_day_cn = lunar.getDayInChinese()
     
-    # 月份转汉字 (简单对应，未处理节气)
-    m_cn = CN_NUM[dt.month]
+    # 5. 获取农历数字 (用于梅花易数和小六壬计算)
+    lunar_month_num = lunar.getMonth()
+    lunar_day_num = lunar.getDay()
     
-    # 格式化输出
+    # 6. 计算时辰索引 (子=0, 丑=1...)
+    # 地支列表: 子丑寅卯辰巳午未申酉戌亥
+    dizhi_list = ["子", "丑", "寅", "卯", "辰", "巳", "午", "未", "申", "酉", "戌", "亥"]
+    h_zhi = h_ganzhi[1] # 取地支字符
+    hour_idx = dizhi_list.index(h_zhi)
+
     gregorian_str = dt.strftime("%Y年%m月%d日 %H:%M:%S")
-    ganzhi_str = f"{y_gan}{y_zhi}年 {m_cn} {d_gan}{d_zhi}日 {h_gan}{h_zhi}时"
     
-    return gregorian_str, ganzhi_str, hour_zhi_idx
+    # 格式：乙巳年 戊子月 庚子日 丙子时 (农历十月十九)
+    ganzhi_str = f"{y_ganzhi}年 {m_ganzhi}月 {d_ganzhi}日 {h_ganzhi}时 (农历{lunar_month_cn}{lunar_day_cn})"
+    
+    return gregorian_str, ganzhi_str, hour_idx, lunar_month_num, lunar_day_num
 
 # ==========================================
 # 核心逻辑：起卦引擎
 # ==========================================
-
 class DivinationEngine:
     @staticmethod
     def cast_liuyao_coin():
@@ -157,7 +166,7 @@ class DivinationEngine:
             coins = [random.randint(0, 1) for _ in range(3)]
             s = sum(coins)
             # sum=0(3背)->老阳(O,动), sum=1(2背1字)->少阴(--), sum=2(1背2字)->少阳(—), sum=3(3字)->老阴(X,动)
-            if s == 0: 
+            if s == 0:
                 val, name = 3, "老阳 O (动)"
             elif s == 1:
                 val, name = 0, "少阴 --"
@@ -168,6 +177,7 @@ class DivinationEngine:
             
             results.append(val)
             display_lines.append(name)
+            
         return results, display_lines
 
     @staticmethod
@@ -175,12 +185,15 @@ class DivinationEngine:
         """梅花易数：数字起卦"""
         upper = n1 % 8
         if upper == 0: upper = 8
+        
         lower = n2 % 8
         if lower == 0: lower = 8
+        
         moving = (n1 + n2) % 6
         if moving == 0: moving = 6
         
         trigrams = {1:"乾", 2:"兑", 3:"离", 4:"震", 5:"巽", 6:"坎", 7:"艮", 8:"坤"}
+        
         return {
             "upper": trigrams[upper],
             "lower": trigrams[lower],
@@ -189,36 +202,29 @@ class DivinationEngine:
         }
 
     @staticmethod
-    def cast_xiaoliuren(month, day, hour_idx, method="time", nums=None):
+    def cast_xiaoliuren(lunar_month, lunar_day, hour_idx, method="time", nums=None):
         """
-        小六壬起课
-        states: 大安, 留连, 速喜, 赤口, 小吉, 空亡
-        算法: (Month + Day + Hour - 2) % 6 (简化版) 或 递归步进
-        这里采用递归步进法：
-        月上起日，日上起时。
+        小六壬起课 (逻辑修正：使用农历月份和日期)
         """
         states = ["大安", "留连", "速喜", "赤口", "小吉", "空亡"]
         
         if method == "numbers" and nums:
-            # 报数法：3个数字分别代表三个步骤
+            # 报数法
             idx_1 = (nums[0] - 1) % 6
             idx_2 = (idx_1 + nums[1] - 1) % 6
             idx_3 = (idx_2 + nums[2] - 1) % 6
-            
             seq = [states[idx_1], states[idx_2], states[idx_3]]
             return {"result": states[idx_3], "sequence": seq, "method": "报数"}
-            
         else:
-            # 时间法
-            # 1. 月: 从大安(0)起
-            # 农历月大概近似公历月 (简化演示)
-            idx_m = (month - 1) % 6
+            # 时间法 (核心修正：使用农历数值)
+            # 1. 月: 从大安起 (农历一月=1)
+            idx_m = (lunar_month - 1) % 6
             
-            # 2. 日: 从月上起
-            idx_d = (idx_m + day - 1) % 6
+            # 2. 日: 从月上起 (农历初一=1)
+            idx_d = (idx_m + lunar_day - 1) % 6
             
             # 3. 时: 从日上起 (子时=1...亥时=12)
-            # hour_idx 0=子, 11=亥 -> 实际步数为 hour_idx + 1
+            # hour_idx 0=子 -> 实际上通常子时算作1
             idx_h = (idx_d + (hour_idx + 1) - 1) % 6
             
             seq = [states[idx_m], states[idx_d], states[idx_h]]
@@ -230,7 +236,6 @@ class DivinationEngine:
 def draw_hexagram(lines_data):
     """绘制六爻卦象"""
     st.markdown("### 卦象图示")
-    # 使用自定义 CSS 类
     st.markdown('<div class="hexagram-container">', unsafe_allow_html=True)
     
     # 六爻是从下往上排，展示时倒序
@@ -239,7 +244,6 @@ def draw_hexagram(lines_data):
         color = "#e57373" if line_type in [1, 3] else "#5c6bc0" # 柔和红/柔和蓝
         height = "8px"
         
-        # 布局
         cols = st.columns([1, 6])
         with cols[0]:
             st.markdown(f"<span style='color:#888; font-size:12px;'>六{i+1}</span>", unsafe_allow_html=True)
@@ -259,13 +263,81 @@ def draw_hexagram(lines_data):
                 st.markdown(f"<div style='text-align:center; font-size:10px; color:{color}; margin-top:-5px;'>O (老阳)</div>", unsafe_allow_html=True)
             elif line_type == 2:
                 st.markdown(f"<div style='text-align:center; font-size:10px; color:{color}; margin-top:-5px;'>X (老阴)</div>", unsafe_allow_html=True)
-                
+    
     st.markdown('</div>', unsafe_allow_html=True)
+
+# ==========================================
+# AI 流式处理核心逻辑
+# ==========================================
+def stream_ai_response(prompt, model):
+    """处理 SiliconFlow API 的流式返回"""
+    client = OpenAI(api_key=SILICONFLOW_API_KEY, base_url=BASE_URL)
+    
+    st.markdown("---")
+    st.subheader("🤖 AI 大师分析中...")
+    
+    reasoning_expander = st.expander("👁️ 查看 AI 思考过程 (Reasoning)", expanded=True)
+    reasoning_placeholder = reasoning_expander.empty()
+    content_placeholder = st.empty()
+    
+    full_reasoning = ""
+    full_content = ""
+    
+    price_config = MODEL_PRICING.get(model, {"input": 10.0, "output": 10.0})
+    
+    try:
+        response = client.chat.completions.create(
+            model=model,
+            messages=[
+                {"role": "system", "content": "你是一位精通中国传统术数（六爻、梅花、奇门、六壬）的易学专家。请基于用户提供的【真实农历干支时间】进行分析。"},
+                {"role": "user", "content": prompt}
+            ],
+            stream=True,
+            stream_options={"include_usage": True}
+        )
+        
+        start_time = time.time()
+        final_usage = None
+        
+        for chunk in response:
+            if hasattr(chunk, 'usage') and chunk.usage:
+                final_usage = chunk.usage
+            
+            if chunk.choices:
+                delta = chunk.choices[0].delta
+                if hasattr(delta, 'reasoning_content') and delta.reasoning_content:
+                    full_reasoning += delta.reasoning_content
+                    reasoning_placeholder.markdown(full_reasoning + "▌")
+                if hasattr(delta, 'content') and delta.content:
+                    full_content += delta.content
+                    content_placeholder.markdown(full_content + "▌")
+        
+        reasoning_placeholder.markdown(full_reasoning)
+        content_placeholder.markdown(full_content)
+        
+        end_time = time.time()
+        duration = end_time - start_time
+        
+        if final_usage:
+            in_tokens = final_usage.prompt_tokens
+            out_tokens = final_usage.completion_tokens
+            total_tokens = final_usage.total_tokens
+            cost = (in_tokens * price_config['input'] + out_tokens * price_config['output']) / 1_000_000
+            
+            st.markdown(f"""
+            <div class='cost-box'>
+                <span>⏱️ 耗时: {duration:.2f}s</span>
+                <span>📊 Tokens: {in_tokens} + {out_tokens} = {total_tokens}</span>
+                <span>💰 预估费用: ¥{cost:.6f}</span>
+            </div>
+            """, unsafe_allow_html=True)
+            
+    except Exception as e:
+        st.error(f"AI 连接出错: {str(e)}")
 
 # ==========================================
 # 主程序
 # ==========================================
-
 def main():
     # Sidebar
     st.sidebar.title("☯️ 控制台")
@@ -274,31 +346,36 @@ def main():
     
     st.sidebar.markdown("---")
     st.sidebar.markdown("""
-    ### 📅 当前时间
+    📅 **当前时空能量**
     """)
-    now_dt = datetime.datetime.now(TZ_CN)
-    greg_str, ganzhi_str, hour_idx = get_ganzhi_time(now_dt)
     
-    st.sidebar.info(f"{greg_str}")
-    st.sidebar.warning(f"{ganzhi_str}")
+    now_dt = datetime.datetime.now(TZ_CN)
+    # 调用更新后的时间函数
+    greg_str, ganzhi_str, hour_idx, lunar_month, lunar_day = get_ganzhi_time(now_dt)
+    
+    st.sidebar.info(f"📆 公历：{greg_str}")
+    st.sidebar.warning(f"🌙 农历：{ganzhi_str}")
+    st.sidebar.caption(f"注：所有起卦逻辑均已校准为农历 ({lunar_month}月{lunar_day}日)")
     
     st.sidebar.markdown("---")
     with st.sidebar.expander("📖 帮助与说明"):
         st.markdown("""
-        **如何使用本系统：**
-        1. **选择预测门类**：点击上方标签页切换（六爻、梅花、奇门等）。
-        2. **输入信息**：根据提示输入问题，选择起卦/起课方式。
-        3. **获取结果**：系统会自动排盘并展示基础数据。
-        4. **AI 分析**：点击“AI 大师解卦”，查看流式深度解析。
+        **系统更新说明：**
+        逻辑内核已升级，现采用天文算法计算农历与干支。
+        
+        **使用步骤：**
+        1. 切换预测门类。
+        2. 输入问题。
+        3. 点击起卦/分析。
         """)
 
     # Main Area
     st.title("AI 智能易学预测系统")
     st.caption("融合传统术数算法与现代大模型推理技术的智能预测平台")
-
+    
     # Tabs
     tabs = st.tabs(["🪙 六爻纳甲", "🌸 梅花易数", "🛡️ 奇门遁甲", "🌊 大六壬", "🖐️ 小六壬"])
-
+    
     # =======================
     # 1. 六爻纳甲
     # =======================
@@ -309,17 +386,7 @@ def main():
             ly_method = st.radio("起卦方式", ["在线摇卦", "手动装卦"], key="ly_method")
         with col2:
             question = st.text_input("🔮 你的问题 (如: 下个月跳槽是否顺利?)", key="ly_q")
-            if not st.session_state.get('liuyao_result'):
-                st.markdown("""
-                <div class='algo-desc'>
-                <b>六爻算法简介：</b><br>
-                采用传统三枚铜钱摇卦法（纳甲筮法）。<br>
-                - 背为阳，字为阴。<br>
-                - 只有背(老阳)和只有字(老阴)为变爻。<br>
-                - 依据起卦时间的日柱、月建进行旺衰分析。
-                </div>
-                """, unsafe_allow_html=True)
-        
+
         if "liuyao_result" not in st.session_state:
             st.session_state.liuyao_result = None
 
@@ -333,9 +400,9 @@ def main():
                     st.session_state.liuyao_result = {
                         "raw": raw_lines,
                         "display": display_lines,
-                        "time": ganzhi_str
+                        "time": ganzhi_str # 存储包含农历的干支时间
                     }
-        
+
         if st.session_state.liuyao_result:
             res = st.session_state.liuyao_result
             c1, c2 = st.columns([1, 1])
@@ -347,15 +414,11 @@ def main():
                 for i, l in enumerate(res['display']):
                     st.text(f"第 {i+1} 爻: {l}")
                 
-                # 捕获按钮动作，但不在此处执行流式输出
                 run_ai = st.button("🤖 AI 深度解卦", key="ly_ai_btn", type="primary")
 
-            # 移出 columns 布局，使用全宽显示
             if run_ai:
-                # 预处理数据：将数字转换为明确的文字描述，防止 AI 试错
                 line_details = []
                 for idx, val in enumerate(res['raw']):
-                    # 0:少阴, 1:少阳, 2:老阴(变), 3:老阳(变)
                     status = "阴" if val in [0, 2] else "阳"
                     movement = "静爻"
                     change_to = ""
@@ -365,22 +428,16 @@ def main():
                     elif val == 3:
                         movement = "动爻"
                         change_to = " -> 变为阴"
-                    
                     line_details.append(f"第{idx+1}爻（从下往上）：{status}（{movement}）{change_to}")
 
                 prompt = f"""
                 你是一位精通六爻纳甲的易学大师。
-                
                 【用户问题】：{question}
-                【起卦时间】：{res['time']}
-                
-                【卦象结构已确定如下，请直接采用，无需重新排盘】：
+                【起卦时间】：{res['time']} (请特别注意月令、日辰的生克)
+                【卦象结构】：
                 {chr(10).join(line_details)}
                 
-                【任务要求】：
-                1. 请直接基于上述已确定的阴阳和动变情况进行分析。
-                2. 分析思路：定世应 -> 查月建日辰旺衰 -> 看用神生克 -> 断吉凶。
-                3. **思维链要求**：在思考过程中，请保持专家自信，不要出现“让我再算一遍”、“这好像不对”等试错性的语言。请直接进行深度逻辑推演。
+                请直接进行深度逻辑推演，断吉凶与应期。
                 """
                 stream_ai_response(prompt, selected_model)
 
@@ -394,34 +451,32 @@ def main():
             mh_method = st.radio("起卦方式", ["时间起卦", "随机报数"], key="mh_method")
         with c2:
             mh_question = st.text_input("🔮 所测之事", key="mh_q")
-            if not st.session_state.get('mh_result'):
-                 st.markdown("""
-                <div class='algo-desc'>
-                <b>梅花易数简介：</b><br>
-                宋代邵康节所传，心易神数。<br>
-                - 时间起卦：年月日为上卦，加时为下卦。<br>
-                - 数字起卦：先天之数，数由心生。<br>
-                - 以体用生克定吉凶，不动不占。
-                </div>
-                """, unsafe_allow_html=True)
-        
+            
         if st.button("梅花起卦", key="mh_btn", use_container_width=True):
             if not mh_question:
                 st.warning("请输入问题")
             else:
                 n1, n2 = 0, 0
                 if mh_method == "时间起卦":
-                    n1 = now_dt.year + now_dt.month + now_dt.day
-                    n2 = n1 + now_dt.hour
+                    # 修正：梅花易数时间起卦应当使用农历年月日
+                    # 公式：(农历年支数 + 农历月数 + 农历日数) % 8 = 上卦
+                    # 公式：(农历年支数 + 农历月数 + 农历日数 + 时支数) % 8 = 下卦
+                    # 这里为了简化展示，我们把年、月、日、时都转化为数字叠加
+                    # 年支数: 子=1...亥=12. 
+                    # 简化逻辑：直接用 lunar_month 和 lunar_day 参与运算
+                    year_zhi_idx = (now_dt.year - 4) % 12 + 1 # 简化的年支序数
+                    
+                    n1 = year_zhi_idx + lunar_month + lunar_day
+                    n2 = n1 + (hour_idx + 1)
+                    st.info(f"逻辑：农历{lunar_month}月{lunar_day}日 + 时辰数")
                 else:
                     n1 = random.randint(1, 999)
                     n2 = random.randint(1, 999)
                 
                 st.session_state.mh_result = DivinationEngine.cast_meihua_numbers(n1, n2)
-        
+
         if "mh_result" in st.session_state and st.session_state.mh_result:
             r = st.session_state.mh_result
-            st.info(f"起卦数字: {r['nums']}")
             col_g1, col_g2, col_g3 = st.columns(3)
             col_g1.metric("上卦", r['upper'])
             col_g2.metric("下卦", r['lower'])
@@ -431,15 +486,10 @@ def main():
                 prompt = f"""
                 你是一位梅花易数大师。
                 【用户问题】：{mh_question}
-                【确定卦象】：
-                - 上卦（悔卦）：{r['upper']}
-                - 下卦（贞卦）：{r['lower']}
-                - 动爻位置：第 {r['moving_line']} 爻
-                
-                请基于上述确定信息：
-                1. 明确体卦、用卦、互卦、变卦。
-                2. 依据五行生克推断吉凶。
-                3. **思维要求**：请直接运用理论分析，不要在思维链中展示“排盘试错”的过程。
+                【起卦时间】：{ganzhi_str}
+                【本卦】：上{r['upper']}下{r['lower']}
+                【动爻】：{r['moving_line']}
+                请依据体用生克与五行旺衰进行推断。
                 """
                 stream_ai_response(prompt, selected_model)
 
@@ -448,111 +498,62 @@ def main():
     # =======================
     with tabs[2]:
         st.subheader("奇门遁甲")
-        st.caption("时家奇门排盘逻辑复杂，将由 AI 引擎进行全盘推演与分析。")
-        
         c1, c2 = st.columns(2)
         with c1:
-            # 关键修复：确保默认值使用 UTC+8 时间
             qm_time = st.date_input("排盘日期", datetime.datetime.now(TZ_CN).date())
         with c2:
-            # 关键修复：确保默认值使用 UTC+8 时间
             qm_hour = st.time_input("排盘时间", datetime.datetime.now(TZ_CN).time())
             
         qm_question = st.text_input("🔮 奇门问测", key="qm_q")
-        if not qm_question:
-            st.markdown("""
-            <div class='algo-desc'>
-            <b>奇门遁甲简介：</b><br>
-            “学会奇门遁，来人不用问”。<br>
-            - 帝王之学，用于运筹决策。<br>
-            - AI 将根据干支时间，自动推演阴阳遁局、值符、值使。<br>
-            - 综合天时(星)、地利(宫)、人和(门)、神助(神)进行判断。
-            </div>
-            """, unsafe_allow_html=True)
-        
+
         if st.button("奇门演局 & AI 分析", key="qm_btn", type="primary", use_container_width=True):
             if not qm_question:
                 st.warning("请输入问题")
             else:
                 full_dt = datetime.datetime.combine(qm_time, qm_hour)
-                # 传入 full_dt 时，get_ganzhi_time 会加上 UTC+8 偏移
-                greg, ganzhi, _ = get_ganzhi_time(full_dt)
+                # 获取该特定时间的准确干支
+                _, qm_ganzhi, _, _, _ = get_ganzhi_time(full_dt)
                 
-                st.success(f"排盘时间：{greg} | 干支：{ganzhi}")
+                st.success(f"排盘信息：{qm_ganzhi}")
                 
                 prompt = f"""
                 你是一位奇门遁甲大师。
-                **信息**：时间 {full_dt} (UTC+8)，干支 {ganzhi}。
+                **信息**：{qm_ganzhi}。
                 **问题**：{qm_question}。
-                **任务**：
-                1. 脑中排定该时辰的时家奇门盘（定局数、值符、值使）。
-                2. 描述关键方位的星门神仪组合。
-                3. 结合问题，通过奇门格局进行决策分析。
-                **注意**：在思考过程中，请确信你的排盘结论，不要展示任何“重新计算局数”或“排错重来”的思维过程。
+                请脑排盘（时家奇门），定局数、值符、值使，分析格局并给出决策建议。
                 """
                 stream_ai_response(prompt, selected_model)
 
     # =======================
-    # 4. 大六壬 (New)
+    # 4. 大六壬
     # =======================
     with tabs[3]:
         st.subheader("大六壬")
-        st.caption("大六壬以月将加占时，推演天地盘、四课三传，为人事之王。")
-        
-        lr_q = st.text_input("🔮 六壬问事 (适合复杂人事、职场、官司)", key="lr_q")
-        
-        if not lr_q:
-            st.markdown("""
-            <div class='algo-desc'>
-            <b>大六壬简介：</b><br>
-            - 专注于复杂人事关系的推演。<br>
-            - 月将加时（天盘加地盘）。<br>
-            - 九宗门起四课，发三传（初传、中传、末传）。<br>
-            </div>
-            """, unsafe_allow_html=True)
+        lr_q = st.text_input("🔮 六壬问事", key="lr_q")
 
         if st.button("六壬起课 & AI 分析", key="lr_btn", type="primary", use_container_width=True):
             if not lr_q:
                 st.warning("请输入问题")
             else:
-                full_dt = datetime.datetime.now(TZ_CN)
-                greg, ganzhi, _ = get_ganzhi_time(full_dt)
-                st.success(f"起课时间：{greg} | 干支：{ganzhi}")
-                
+                st.success(f"起课信息：{ganzhi_str}")
                 prompt = f"""
-                你是一位精通大六壬金口诀的大师。
-                **信息**：起课时间 {full_dt} (UTC+8)，干支 {ganzhi}。
+                你是一位精通大六壬的大师。
+                **信息**：{ganzhi_str}。
                 **问题**：{lr_q}。
-                **任务**：
-                1. 确定月将（基于节气）。
-                2. 推演天地盘关系，提取四课，试排三传（若能）。
-                3. 分析干支关系、神煞。
-                4. 针对用户的复杂人事问题给出详细推断。
+                请确定月将，推演天地盘、四课三传，进行详细推断。
                 """
                 stream_ai_response(prompt, selected_model)
 
     # =======================
-    # 5. 小六壬 (New)
+    # 5. 小六壬 (已修正)
     # =======================
     with tabs[4]:
         st.subheader("小六壬")
-        st.caption("马前课，即时速断，简单明了。")
-        
         c1, c2 = st.columns([1, 2])
         with c1:
             xlr_method = st.radio("起课方式", ["当前时间", "随机报数(3个)"], key="xlr_method")
         with c2:
-            xlr_q = st.text_input("🔮 快速问测 (如: 钥匙丢哪了?)", key="xlr_q")
-            if not xlr_q:
-                st.markdown("""
-                <div class='algo-desc'>
-                <b>小六壬简介：</b><br>
-                诸葛马前课，掐指一算。<br>
-                - 包含六个宫位：大安、留连、速喜、赤口、小吉、空亡。<br>
-                - 依次月上起日，日上起时。<br>
-                - 适合寻找失物、询问急事吉凶。
-                </div>
-                """, unsafe_allow_html=True)
+            xlr_q = st.text_input("🔮 快速问测", key="xlr_q")
             
         if st.button("小六壬掐指一算", key="xlr_btn", type="primary", use_container_width=True):
             if not xlr_q:
@@ -564,13 +565,14 @@ def main():
                     method_code = "numbers"
                     nums = [random.randint(1, 9) for _ in range(3)]
                     st.info(f"随机报数: {nums}")
+                else:
+                    st.info(f"时间起课：农历{lunar_month}月 + 农历{lunar_day}日 + 时辰({hour_idx+1})")
                 
-                # 计算
+                # 传入修正后的农历参数
                 res = DivinationEngine.cast_xiaoliuren(
-                    now_dt.month, now_dt.day, hour_idx, method=method_code, nums=nums
+                    lunar_month, lunar_day, hour_idx, method=method_code, nums=nums
                 )
                 
-                # 结果展示
                 st.markdown("### 课象结果")
                 col_res1, col_res2 = st.columns([1, 2])
                 with col_res1:
@@ -578,7 +580,6 @@ def main():
                 with col_res2:
                     st.text(f"推演路径: {' -> '.join(res['sequence'])}")
                 
-                # 解释卡片
                 explanations = {
                     "大安": "大安事事昌，求财在坤方，失物去不远，宅舍保安康。",
                     "留连": "留连事难成，求谋日未明，官事只宜缓，去者未回程。",
@@ -593,100 +594,11 @@ def main():
                     prompt = f"""
                     你是一位精通小六壬的易学专家。
                     用户问题：{xlr_q}
+                    起课时间：{ganzhi_str}
                     推演结果：{res['sequence']} -> 最终落宫【{res['result']}】。
-                    
-                    请解释：
-                    1. 最终落宫的含义（{res['result']}）。
-                    2. 结合前两个步骤（{res['sequence'][0]}、{res['sequence'][1]}）的生克或过程含义。
-                    3. 对用户问题的直接回答（吉/凶/方位/时间建议）。
+                    请结合问题详解吉凶。
                     """
                     stream_ai_response(prompt, selected_model)
-
-# ==========================================
-# AI 流式处理核心逻辑
-# ==========================================
-def stream_ai_response(prompt, model):
-    """处理 SiliconFlow API 的流式返回，兼容思考模型"""
-    client = OpenAI(api_key=SILICONFLOW_API_KEY, base_url=BASE_URL)
-    
-    # 移出可能的列布局，确保全宽显示
-    st.markdown("---")
-    st.subheader("🤖 AI 大师分析中...")
-    
-    # 容器布局
-    reasoning_expander = st.expander("👁️ 查看 AI 思考过程 (Reasoning)", expanded=True)
-    reasoning_placeholder = reasoning_expander.empty()
-    content_placeholder = st.empty()
-    
-    full_reasoning = ""
-    full_content = ""
-    
-    # 获取单价配置
-    price_config = MODEL_PRICING.get(model, {"input": 10.0, "output": 10.0})
-    
-    try:
-        # stream_options={"include_usage": True} 是 OpenAI 兼容接口获取 Token 计数的关键
-        response = client.chat.completions.create(
-            model=model,
-            messages=[
-                {"role": "system", "content": "你是一位精通中国传统术数（六爻、梅花、奇门、六壬）的易学专家，语气专业、平和，能将古文与现代白话结合解释。请根据不同的预测术数使用其专门的术语（如六爻讲世应、奇门讲星门、六壬讲课传）。"},
-                {"role": "user", "content": prompt}
-            ],
-            stream=True,
-            stream_options={"include_usage": True} 
-        )
-        
-        start_time = time.time()
-        final_usage = None
-        
-        for chunk in response:
-            # 尝试获取 usage 信息 (通常在最后一个 chunk)
-            if hasattr(chunk, 'usage') and chunk.usage:
-                final_usage = chunk.usage
-
-            if chunk.choices: # 检查 choices 是否存在 (usage chunk 可能 choices 为空)
-                delta = chunk.choices[0].delta
-                
-                # 处理思考过程
-                if hasattr(delta, 'reasoning_content') and delta.reasoning_content:
-                    full_reasoning += delta.reasoning_content
-                    reasoning_placeholder.markdown(full_reasoning + "▌")
-                
-                # 处理正式回答
-                if hasattr(delta, 'content') and delta.content:
-                    full_content += delta.content
-                    content_placeholder.markdown(full_content + "▌")
-                
-        # 结束流式输出
-        reasoning_placeholder.markdown(full_reasoning)
-        content_placeholder.markdown(full_content)
-        
-        end_time = time.time()
-        duration = end_time - start_time
-        
-        # 计算并展示费用
-        if final_usage:
-            in_tokens = final_usage.prompt_tokens
-            out_tokens = final_usage.completion_tokens
-            total_tokens = final_usage.total_tokens
-            
-            # 费用计算 (单位：元)
-            cost = (in_tokens * price_config['input'] + out_tokens * price_config['output']) / 1_000_000
-            
-            st.markdown(f"""
-            <div class='cost-box'>
-                <span>⏱️ 耗时: {duration:.2f}s</span>
-                <span>📊 Tokens: 输入 {in_tokens} + 输出 {out_tokens} = {total_tokens}</span>
-                <span>💰 预估费用: ¥{cost:.6f}</span>
-            </div>
-            """, unsafe_allow_html=True)
-        else:
-            # 如果 API 未返回 usage，则显示耗时
-            st.caption(f"耗时: {duration:.2f}s (Token 数据未返回)")
-        
-    except Exception as e:
-        st.error(f"AI 连接出错: {str(e)}")
-        st.error("请检查 API Key 余额或网络连接。")
 
 if __name__ == "__main__":
     main()

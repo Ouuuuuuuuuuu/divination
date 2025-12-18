@@ -229,6 +229,24 @@ def generate_system_prompt(method, user_profile, ganzhi_info):
         3. 分析宫位：门、星、神、奇仪组合。
         4. 决策建议：利主利客，进退方向。
         """
+    elif method == "大六壬":
+        return base_prompt + """
+        【大六壬特化指令】
+        1. **确定月将**：根据当前节气确定月将（太阳过宫）。
+        2. **排盘**：推演天地盘、四课、三传。
+        3. **断课**：分析三传吉凶，结合十二神将判断。
+        4. **人事应验**：分析事情的发展脉络。
+        """
+    elif method == "太乙":
+        return base_prompt + """
+        【太乙神数特化指令】
+        1. **计算积年与太乙局**：基于当前干支时间，推算太乙积年（上元/中元/下元），确定阳遁或阴遁局数。
+        2. **推演主客**：
+           - **算主（Host）**：计算主算，定主大将、主参将落宫。
+           - **算客（Guest）**：计算客算，定客大将、客参将落宫。
+        3. **定格局**：分析太乙在天盘的位置，判断掩、迫、关、囚等格局。
+        4. **断大势**：太乙重天道与宏观。分析命主问题的主客胜负、长远趋势。如果是个人问事，请结合“太乙命法”分析身命十二宫。
+        """
     elif method == "小六壬":
         return base_prompt + """
         【小六壬特化指令】
@@ -362,7 +380,7 @@ def main():
         "longitude": longitude
     }
 
-    tabs = st.tabs(["🪙 六爻纳甲", "🌸 梅花易数", "🛡️ 奇门遁甲", "🖐️ 小六壬"])
+    tabs = st.tabs(["🪙 六爻纳甲", "🌸 梅花易数", "🛡️ 奇门遁甲", "🌊 大六壬", "🌌 太乙神数", "🖐️ 小六壬"])
 
     # --- 1. 六爻 ---
     with tabs[0]:
@@ -439,9 +457,42 @@ def main():
             sys_prompt = generate_system_prompt("奇门", user_profile, ganzhi_info)
             user_prompt = f"用户问题：{q_qm}\n当前真太阳时干支：{ganzhi_info['str']}\n请以时家奇门排盘分析。"
             stream_ai_analysis(user_prompt, sys_prompt, selected_model)
-
-    # --- 4. 小六壬 ---
+    
+    # --- 4. 大六壬 ---
     with tabs[3]:
+        st.subheader("大六壬 - 细致入微的人事占卜")
+        q_lr = st.text_input("六壬问事", placeholder="例如：这笔生意最终能成吗？阻力在哪？", key="q_lr")
+        
+        if st.button("起课分析", key="btn_lr"):
+            st.info(f"正在起课... 时间基准：{ganzhi_info['str']} (真太阳时)")
+            sys_prompt = generate_system_prompt("大六壬", user_profile, ganzhi_info)
+            user_prompt = f"""
+            用户问题：{q_lr}
+            当前真太阳时干支：{ganzhi_info['str']}
+            当前节气：{ganzhi_info['solar_term']}
+            
+            请根据节气确定月将（重要！），然后推导天地盘、四课、三传，最后断事。
+            """
+            stream_ai_analysis(user_prompt, sys_prompt, selected_model)
+
+    # --- 5. 太乙 ---
+    with tabs[4]:
+        st.subheader("太乙神数 - 宏观大局与天道运数")
+        st.caption("太乙神数掌管天道，常用于推演大势、国运、天灾或重大决策（亦含太乙命法）。")
+        q_ty = st.text_input("太乙问测", placeholder="例如：未来五年行业发展大势如何？", key="q_ty")
+        
+        if st.button("太乙演局", key="btn_ty"):
+             st.info(f"正在推演... 时间基准：{ganzhi_info['str']} (真太阳时)")
+             sys_prompt = generate_system_prompt("太乙", user_profile, ganzhi_info)
+             user_prompt = f"""
+             用户问题：{q_ty}
+             当前真太阳时干支：{ganzhi_info['str']}
+             请进行太乙积年推算，定局数，分主客，论格局。
+             """
+             stream_ai_analysis(user_prompt, sys_prompt, selected_model)
+
+    # --- 6. 小六壬 ---
+    with tabs[5]:
         st.subheader("小六壬 - 掐指一算的应急预测")
         q_xlr = st.text_input("速问", key="q_xlr")
         if st.button("掐指一算", key="btn_xlr"):

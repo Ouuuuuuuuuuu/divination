@@ -5,6 +5,7 @@ import time
 import math
 import os
 from openai import OpenAI
+# 修复 ImportError: 移除未使用的 GanZhi 导入
 from lunar_python import Lunar, Solar
 
 # ==========================================
@@ -406,8 +407,9 @@ def main():
     with tabs[1]:
         st.subheader("梅花易数 - 快速洞察数理象意")
         c1, c2 = st.columns(2)
-        n1 = c1.number_input("上卦数 (心中想一个数)", 1, 999, 0)
-        n2 = c2.number_input("下卦数 (心中想另一个数)", 1, 999, 0)
+        # 修复：将 min_value 设为 0，允许用户不输入（默认为0）以触发自动感应
+        n1 = c1.number_input("上卦数 (心中想一个数)", 0, 999, 0)
+        n2 = c2.number_input("下卦数 (心中想另一个数)", 0, 999, 0)
         q_mh = st.text_input("所测之事", key="q_mh")
         
         if st.button("起卦", key="btn_mh"):

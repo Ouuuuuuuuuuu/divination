@@ -5,7 +5,7 @@ import time
 import math
 import os
 from openai import OpenAI
-from lunar_python import Lunar, Solar, GanZhi
+from lunar_python import Lunar, Solar
 
 # ==========================================
 # 配置与常量
